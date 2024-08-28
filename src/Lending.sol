@@ -11,6 +11,7 @@ contract Lending {
     IPriceOracle public oracle;
     ERC20 public usdc;
 
+    uint256 public APY = 3;
     uint256 public LTV = 50;
     bool public initiator = false;
 
@@ -33,10 +34,11 @@ contract Lending {
     function charge(address _addr) internal {   // testBorrowWithInSufficientCollateralAfterRepaymentFails -> 1USDC/1Block
         if (recentBlock[msg.sender] == 0) recentBlock[msg.sender] = block.number;
         else {
-            uint256 chargeAmount = (block.number - recentBlock[msg.sender]) * borrowedUSDC[msg.sender];
+            uint256 interestPerBlock = borrowedUSDC[msg.sender] * APY * 100 / 365 / 24 / 60 / 5;
+            uint256 chargeAmount = (block.number - recentBlock[msg.sender]) * interestPerBlock;
             borrowedUSDC[msg.sender] += chargeAmount;
             recentBlock[msg.sender] = block.number; 
-        }           
+        }          
     }
 
     function initializeLendingProtocol(address token) external payable {
