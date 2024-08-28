@@ -25,20 +25,20 @@ contract Lending {
         usdc = ERC20(_usdc);
     }
 
-    function availableAmount(address _addr) internal returns (uint256) {
+    function availableAmount(address _addr, uint256 ratio) internal returns (uint256) {
         uint256 ethP = oracle.getPrice(address(0));
         uint256 usdP = oracle.getPrice(address(usdc));
-        return (userETH[msg.sender] * ethP + userUSDC[msg.sender] * usdP) * LTV / 100 - borrowedUSDC[msg.sender] * usdP;
+        return (userETH[msg.sender] * ethP + userUSDC[msg.sender] * usdP) * ratio / 100 - borrowedUSDC[msg.sender] * usdP;
     }
 
-    function charge(address _addr) internal {   // testBorrowWithInSufficientCollateralAfterRepaymentFails -> 1USDC/1Block
+    function charge(address _addr) internal {
         if (recentBlock[msg.sender] == 0) recentBlock[msg.sender] = block.number;
-        else {
+        else {   // 1 block 당 12sec 고정으로 계산하세요.
             uint256 interestPerBlock = borrowedUSDC[msg.sender] * APY * 100 / 365 / 24 / 60 / 5;
             uint256 chargeAmount = (block.number - recentBlock[msg.sender]) * interestPerBlock;
             borrowedUSDC[msg.sender] += chargeAmount;
             recentBlock[msg.sender] = block.number; 
-        }          
+        }           
     }
 
     function initializeLendingProtocol(address token) external payable {
@@ -61,7 +61,7 @@ contract Lending {
 
     function borrow(address token, uint256 amount) external {
         charge(msg.sender);
-        require(availableAmount(msg.sender) >= amount * oracle.getPrice(address(token)), "Not Enough Collateral");
+        require(availableAmount(msg.sender, 50) >= amount * oracle.getPrice(address(token)), "Not Enough Collateral");
 
         borrowedUSDC[msg.sender] += amount;
         usdc.transfer(msg.sender, amount);
@@ -83,6 +83,23 @@ contract Lending {
     }
 
     function withdraw(address token, uint256 amount) external {
+        charge(msg.sender);
+        uint256 available = availableAmount(msg.sender, 100);
+        uint256 withdrawalValue = amount * oracle.getPrice(address(token));
+        uint256 borrowedValue = borrowedUSDC[msg.sender] * oracle.getPrice(address(usdc));
+        require(available >= withdrawalValue, "Insufficient Balance");
+
+        uint256 collateralAfterWithdraw = available + borrowedValue - withdrawalValue;
+        require(collateralAfterWithdraw * 75 / 100 >= borrowedValue, "Not Enough Collateral");
+        
+        if (token == address(0)) {
+            require(userETH[msg.sender] >= amount, "Not Enough ETH");
+            payable(msg.sender).transfer(amount);
+        } else {
+            require(userUSDC[msg.sender] >= amount, "Not Enough USDC");
+            usdc.transfer(msg.sender, amount);
+        }
+        recentBlock[msg.sender] = block.number;
     }
 
     function getAccruedSupplyAmount(address token) external view returns (uint256) {
