@@ -11,7 +11,9 @@ contract Lending {
     IPriceOracle public oracle;
     ERC20 public usdc;
 
+    uint256 public LTV = 50;
     bool public initiator = false;
+
     mapping(address => uint256) public userETH;
     mapping(address => uint256) public userUSDC;
     mapping(address => uint256) public borrowedUSDC;
@@ -20,6 +22,21 @@ contract Lending {
     constructor(IPriceOracle _oracle, address _usdc) {
         oracle = _oracle;
         usdc = ERC20(_usdc);
+    }
+
+    function availableAmount(address _addr) internal returns (uint256) {
+        uint256 ethP = oracle.getPrice(address(0));
+        uint256 usdP = oracle.getPrice(address(usdc));
+        return (userETH[msg.sender] * ethP + userUSDC[msg.sender] * usdP) * LTV / 100 - borrowedUSDC[msg.sender] * usdP;
+    }
+
+    function charge(address _addr) internal {   // testBorrowWithInSufficientCollateralAfterRepaymentFails -> 1USDC/1Block
+        if (recentBlock[msg.sender] == 0) recentBlock[msg.sender] = block.number;
+        else {
+            uint256 chargeAmount = (block.number - recentBlock[msg.sender]) * borrowedUSDC[msg.sender];
+            borrowedUSDC[msg.sender] += chargeAmount;
+            recentBlock[msg.sender] = block.number; 
+        }           
     }
 
     function initializeLendingProtocol(address token) external payable {
@@ -37,20 +54,30 @@ contract Lending {
             usdc.transferFrom(msg.sender, address(this), amount);
             userUSDC[msg.sender] += amount;
         }
+        recentBlock[msg.sender] = block.number;
     }
 
     function borrow(address token, uint256 amount) external {
-
-        uint256 ethP = oracle.getPrice(address(0));
-        uint256 usdP = oracle.getPrice(address(usdc));
-        uint256 available = (userETH[msg.sender] * ethP + userUSDC[msg.sender] * usdP) * 66 / 100 - borrowedUSDC[msg.sender] * usdP;
-        require(available >= amount * oracle.getPrice(address(token)), "Nanananana");
+        charge(msg.sender);
+        require(availableAmount(msg.sender) >= amount * oracle.getPrice(address(token)), "Not Enough Collateral");
 
         borrowedUSDC[msg.sender] += amount;
         usdc.transfer(msg.sender, amount);
+        recentBlock[msg.sender] = block.number;
     }
 
     function repay(address token, uint256 amount) external {
+        charge(msg.sender);
+        uint256 borrowed = borrowedUSDC[msg.sender];        
+        require(usdc.balanceOf(msg.sender) >= amount, "Not Enough USDC");
+        
+        if (borrowed >= amount) {
+            borrowedUSDC[msg.sender] -= amount;
+        } else {
+            borrowedUSDC[msg.sender] = 0;
+            userUSDC[msg.sender] += amount - borrowed;
+        }
+        recentBlock[msg.sender] = block.number;
     }
 
     function withdraw(address token, uint256 amount) external {
