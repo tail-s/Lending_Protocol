@@ -12,7 +12,7 @@ contract Lending {
     ERC20 public usdc;
 
     uint256 public APY = 3;
-    uint256 public LTV = 50;
+    uint256 public LTV = 75;
     bool public initiator = false;
 
     mapping(address => uint256) public userETH;
