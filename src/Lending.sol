@@ -90,7 +90,7 @@ contract Lending {
         require(available >= withdrawalValue, "Insufficient Balance");
 
         uint256 collateralAfterWithdraw = available + borrowedValue - withdrawalValue;
-        require(collateralAfterWithdraw * 75 / 100 >= borrowedValue, "Not Enough Collateral");
+        require(collateralAfterWithdraw * LTV / 100 >= borrowedValue, "Not Enough Collateral");
         
         if (token == address(0)) {
             require(userETH[msg.sender] >= amount, "Not Enough ETH");
