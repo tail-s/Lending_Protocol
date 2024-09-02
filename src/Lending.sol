@@ -11,7 +11,7 @@ contract Lending {
     IPriceOracle public oracle;
     ERC20 public usdc;
 
-    uint256 public APY = 1;
+    uint256 public APY = 3; // I don't know WTF.
     bool public initiator = false;
 
     mapping(address => uint256) public userETH;
@@ -27,16 +27,16 @@ contract Lending {
     function availableAmount(address _addr, uint256 ratio) internal returns (uint256) {
         uint256 ethP = oracle.getPrice(address(0));
         uint256 usdP = oracle.getPrice(address(usdc));
-        return (userETH[msg.sender] * ethP + userUSDC[msg.sender] * usdP) * ratio / 100 - borrowedUSDC[msg.sender] * usdP;
+        return (userETH[_addr] * ethP + userUSDC[_addr] * usdP) * ratio / 100 - borrowedUSDC[_addr] * usdP;
     }
 
     function charge(address _addr) internal {
-        if (recentBlock[msg.sender] == 0) recentBlock[msg.sender] = block.number;
-        else {   // 1 block 당 12sec 고정으로 계산하세요.
-            uint256 interestPerBlock = borrowedUSDC[msg.sender] * APY * 100 / 365 / 24 / 60 / 5;
-            uint256 chargeAmount = (block.number - recentBlock[msg.sender]) * interestPerBlock;
-            borrowedUSDC[msg.sender] += chargeAmount;
-            recentBlock[msg.sender] = block.number; 
+        if (recentBlock[_addr] == 0) recentBlock[_addr] = block.number;
+        else {   
+            uint256 interestPerBlock = borrowedUSDC[_addr] * APY * 100 / 365 / 24 / 60 / 5;    // 1 block 당 12sec 고정으로 계산하세요.
+            uint256 chargeAmount = (block.number - recentBlock[_addr]) * interestPerBlock;
+            borrowedUSDC[_addr] += chargeAmount;
+            recentBlock[_addr] = block.number; 
         }           
     }
 
@@ -52,23 +52,25 @@ contract Lending {
             userETH[msg.sender] += msg.value;
         } else {
             require(usdc.balanceOf(msg.sender) >= amount, "Insufficient USDC");
-            usdc.transferFrom(msg.sender, address(this), amount);
             userUSDC[msg.sender] += amount;
+            usdc.transferFrom(msg.sender, address(this), amount);            
         }
-        recentBlock[msg.sender] = block.number;
     }
 
     function borrow(address token, uint256 amount) external {
         charge(msg.sender);
+
+        require(token == address(usdc), "Not Implemented");
         require(availableAmount(msg.sender, 50) >= amount * oracle.getPrice(address(token)), "Not Enough Collateral");
 
-        borrowedUSDC[msg.sender] += amount;
+        borrowedUSDC[msg.sender] += amount;        
         usdc.transfer(msg.sender, amount);
-        recentBlock[msg.sender] = block.number;
     }
 
     function repay(address token, uint256 amount) external {
         charge(msg.sender);
+
+        require(token == address(usdc), "Not Implemented");
         uint256 borrowed = borrowedUSDC[msg.sender];        
         require(usdc.balanceOf(msg.sender) >= amount, "Not Enough USDC");
         
@@ -78,11 +80,12 @@ contract Lending {
             borrowedUSDC[msg.sender] = 0;
             userUSDC[msg.sender] += amount - borrowed;
         }
-        recentBlock[msg.sender] = block.number;
+        
     }
 
     function withdraw(address token, uint256 amount) external {
         charge(msg.sender);
+
         uint256 available = availableAmount(msg.sender, 100);
         uint256 withdrawalValue = amount * oracle.getPrice(address(token));
         uint256 borrowedValue = borrowedUSDC[msg.sender] * oracle.getPrice(address(usdc));
@@ -98,13 +101,30 @@ contract Lending {
             require(userUSDC[msg.sender] >= amount, "Not Enough USDC");
             usdc.transfer(msg.sender, amount);
         }
-        recentBlock[msg.sender] = block.number;
+        
     }
 
-    function getAccruedSupplyAmount(address token) external view returns (uint256) {
+    function getAccruedSupplyAmount(address token) external returns (uint256) {
     }
 
-    function liquidate(address _usdc, address _borrower) external {
+    function liquidate(address borrower, address token, uint256 amount) external {
+        charge(borrower);
 
+        uint256 maxLiquidationAmount = borrowedUSDC[borrower] >= 100 ether ? borrowedUSDC[borrower] / 4 : borrowedUSDC[borrower];
+        require(amount <= maxLiquidationAmount, "can liquidate the whole position when the borrowed amount is less than 100");
+        require(amount <= borrowedUSDC[borrower], "Too Much USDC");
+
+        require(token == address(usdc), "Not Implemented");
+        uint256 ethCollateral = userETH[borrower] * oracle.getPrice(address(0));
+        uint256 borrowed = borrowedUSDC[borrower] * oracle.getPrice(token);
+
+        require(ethCollateral * 75 / 100 < borrowed, "Suficient Collateral");
+        borrowedUSDC[borrower] -= amount;
+        uint256 liquidatedEthAmount = userETH[borrower] * amount * oracle.getPrice(token) / ethCollateral;       
+        userETH[borrower] -= liquidatedEthAmount;
+
+        usdc.transferFrom(msg.sender, address(this), amount);
+        payable(msg.sender).transfer(liquidatedEthAmount);
+        
     }
 }
