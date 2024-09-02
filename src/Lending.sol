@@ -11,14 +11,13 @@ contract Lending {
     IPriceOracle public oracle;
     ERC20 public usdc;
 
-    uint256 public APY = 3;
-    uint256 public LTV = 75;
+    uint256 public APY = 1;
     bool public initiator = false;
 
     mapping(address => uint256) public userETH;
     mapping(address => uint256) public userUSDC;
     mapping(address => uint256) public borrowedUSDC;
-    mapping(address => uint256) public recentBlock; // 1 block 당 12sec 고정으로 계산하세요.
+    mapping(address => uint256) public recentBlock;
 
     constructor(IPriceOracle _oracle, address _usdc) {
         oracle = _oracle;
@@ -90,7 +89,7 @@ contract Lending {
         require(available >= withdrawalValue, "Insufficient Balance");
 
         uint256 collateralAfterWithdraw = available + borrowedValue - withdrawalValue;
-        require(collateralAfterWithdraw * LTV / 100 >= borrowedValue, "Not Enough Collateral");
+        require(collateralAfterWithdraw * 75 / 100 >= borrowedValue, "Not Enough Collateral");
         
         if (token == address(0)) {
             require(userETH[msg.sender] >= amount, "Not Enough ETH");
